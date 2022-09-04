@@ -1,0 +1,26 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  creationTimestamp: null
+  name: knative-deployment-civo
+spec:
+  template:
+    metadata:
+      creationTimestamp: null
+      name: knative-deployment-civo-2989068276-1
+    spec:
+      containerConcurrency: 0
+      containers:
+        - image: docker.io/avik6028/knative-deployment-civo:bd824845d92e00b8e6a0886158510adc75ebb735
+          name: user-container
+          ports:
+            - containerPort: 1337
+              protocol: TCP
+          readinessProbe:
+            successThreshold: 1
+            tcpSocket:
+              port: 0
+          resources: {}
+      enableServiceLinks: false
+      timeoutSeconds: 300
+status: {}

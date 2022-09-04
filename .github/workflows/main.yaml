@@ -1,0 +1,111 @@
+name: NodeJS Deployment on Civo using Knative and ArgoCD
+
+on:
+  push:
+    branches: [deployment]
+
+jobs:    
+  build-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v1.1.0
+        with:
+          username: ${{ secrets.DOCKER_USER }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+          repository: ${{ format('{0}/{1}', secrets.DOCKER_USER, secrets.APP_NAME )}}
+          tags: ${{ github.sha }}, latest
+
+  bump-docker-tag:
+    name: Bump the Docker tag in the Knative Service manifest
+    runs-on: ubuntu-latest
+    needs: build-publish
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v2
+
+      - name: Install yq - portable yaml processor
+        env:
+          URL: https://github.com/mikefarah/yq/releases/download/3.3.4/yq_linux_amd64
+        run: |
+          [ -w /usr/local/bin ] && SUDO="" || SUDO=sudo
+          $SUDO wget $URL
+          $SUDO mv ./yq_linux_amd64 /usr/local/bin/yq
+          $SUDO chmod +x /usr/local/bin/yq
+
+      - name: Update Knative Service manifest
+        run: |
+          yq w -i knative/service.yaml spec.template.metadata.name "${{ secrets.APP_NAME }}-${{ github.run_id }}-${{ github.run_attempt }}"
+          yq w -i knative/service.yaml spec.template.spec.containers[0].image "docker.io/${{ secrets.DOCKER_USER }}/${{ secrets.APP_NAME }}:${{ github.sha }}"
+
+      - name: Commit to GitHub
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"          
+          git commit -am "Bump docker tag"
+
+      - name: Push changes
+        uses: ad-m/github-push-action@v0.6.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ github.ref }}
+
+  argocd-configure:
+    name: Configure ArgoCD
+    runs-on: ubuntu-latest
+    needs: bump-docker-tag
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v2
+
+      - name: Install Civo CLI
+        env:
+          URL: https://github.com/civo/cli/releases/download/v1.0.32/civo-1.0.32-linux-amd64.tar.gz
+        run: |        
+          [ -w /usr/local/bin ] && SUDO="" || SUDO=sudo
+          $SUDO wget $URL
+          $SUDO tar -xvf civo-1.0.32-linux-amd64.tar.gz
+          $SUDO mv ./civo /usr/local/bin/
+          $SUDO chmod +x /usr/local/bin/civo
+
+      - name: Authenticate to Civo API
+        run: civo apikey add Login_Key ${{ secrets.CIVO_TOKEN }}
+
+      - name: Save Civo kubeconfig
+        run: |
+          civo region set ${{ secrets.CIVO_REGION }}
+          civo kubernetes config ${{ secrets.CLUSTER_NAME }} --save
+
+      - name: Install Kubectl
+        uses: azure/setup-kubectl@v3
+        id: install
+
+      - name: Apply ArgoCD manifests on Civo
+        run: |
+          kubectl apply -f argocd/manual-sync-config.yaml
+
+  argocd-manual-sync:
+    name: Sync the ArgoCD Application manually
+    runs-on: ubuntu-latest
+    needs: argocd-configure
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v2
+
+      - name: Install ArgoCD CLI
+        env:
+          URL: https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+        run: |
+          [ -w /usr/local/bin ] && SUDO="" || SUDO=sudo
+          $SUDO curl --insecure -sSL -o /usr/local/bin/argocd $URL
+          $SUDO chmod +x /usr/local/bin/argocd
+      
+      - name: ArgoCD CLI login
+        run: argocd login ${{ secrets.ARGOCD_SERVER }} --insecure --username ${{ secrets.ARGOCD_USERNAME }} --password ${{ secrets.ARGOCD_PASSWORD }}
+  
+      - name: Manual sync
+        run: argocd app sync ${{ secrets.APP_NAME }}
+
+      - name: Wait for application to reach a synced and healthy state
+        run: argocd app wait ${{ secrets.APP_NAME }}

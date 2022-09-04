@@ -1,0 +1,18 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: knative-deployment-civo
+  namespace: argocd
+spec:
+  destination:
+    namespace: nodejs
+    server: 'https://kubernetes.default.svc'
+  source:
+    path: knative
+    repoURL: 'https://github.com/Lucifergene/knative-deployment-civo'
+    targetRevision: deployment
+  project: default
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      
