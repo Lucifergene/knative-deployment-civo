@@ -7,11 +7,11 @@ spec:
   template:
     metadata:
       creationTimestamp: null
-      name: knative-deployment-civo-2989068276-1
+      name: knative-deployment-civo-2989134890-1
     spec:
       containerConcurrency: 0
       containers:
-        - image: docker.io/avik6028/knative-deployment-civo:bd824845d92e00b8e6a0886158510adc75ebb735
+        - image: docker.io/avik6028/knative-deployment-civo:49680db6549226af62fb3ebee1e96687e7dd1388
           name: user-container
           ports:
             - containerPort: 1337
